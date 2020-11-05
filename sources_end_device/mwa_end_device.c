@@ -44,6 +44,8 @@
 #include "board.h"
 #include "fsl_os_abstraction.h"
 
+#include "MyNewTask.h"
+
 /************************************************************************************
 *************************************************************************************
 * Private macros
@@ -228,6 +230,8 @@ void main_task(uint32_t param)
             return;
         }
     }
+
+    MyTask_Init(); /* INIT MY NEW TASK */
 
     /* Call application Idle task */
     App_Idle_Task( param );
@@ -461,6 +465,7 @@ void AppThread(osaTaskParam_t argument)
         case stateScanActiveStart:
             /* Start the Active scan, and goto wait for confirm state. */
             Serial_Print(interfaceId, "\n\rStart scanning for a PAN coordinator\n\r", gAllowToBlock_d);
+            MyTaskTimer_Stop(); /* STOP Timer */
             
             rc = App_StartScan(gScanModeActive_c);
             if(rc == errorNoError)
@@ -552,6 +557,7 @@ void AppThread(osaTaskParam_t argument)
                             /* Startup the timer */
                             TMR_StartLowPowerTimer(mTimer_c, gTmrSingleShotTimer_c ,mPollInterval, AppPollWaitTimeout, NULL );
                             /* Go to the listen state */
+                            MyTaskTimer_Start(); /*Start LED flashing with your task*/
                             gState = stateListen;
                             OSA_EventSet(mAppEvent, gAppEvtDummyEvent_c); 
                         }        
@@ -1117,6 +1123,8 @@ static void App_TransmitUartData(void)
         OSA_EventSet(mAppEvent, gAppEvtRxFromUart_c);
     }
 }
+
+
 
 /******************************************************************************
 * The App_ReceiveUartData() function will check if it is time to send out an
