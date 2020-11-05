@@ -37,6 +37,8 @@
 #include "board.h"
 #include "fsl_os_abstraction.h"
 
+#nclude "MyNewTask.h"
+
 /************************************************************************************
 *************************************************************************************
 * Private macros
@@ -412,10 +414,6 @@ void AppThread(uint32_t argument)
           {
               /* Process it */
               App_HandleMcpsInput(pMsgIn, 0);
-
-              /*PRENDER N LEDS*/
-              switch()
-
               /* Messages from the MCPS must always be freed. */
               MSG_Free(pMsgIn);
               pMsgIn = NULL;
@@ -740,6 +738,22 @@ static uint8_t App_StartCoordinator( uint8_t appInstance )
 *   errorAllocFailed:      A message buffer could not be allocated.
 *
 ******************************************************************************/
+struct NodeInfo
+{
+    uint16_t                assocShortAddress; 	/* Short device address allocated by the coordinator */
+    uint64_t                deviceAddress; 		/* Long Address of the device */
+    macCapabilityInfo_t     RxOnWhenIdle; 		/* Mask msgData.associateInd.capabilityInfo with gCapInfoRxWhenIdle_c
+     	 	 	 	 	 	 	 	 	 	 	 	 1 == true  0 == false*/
+    macCapabilityInfo_t     DeviceType; 		/* Mask msgData.associateInd.capabilityInfo with gCapInfoDeviceFfd_c
+     	 	 	 	 	 	 	 	 	 	 	 	 1 == ffd,  0 == rfd*/
+};
+#define NUM_ENDDEVICES 			5					/* Define a max number of saved associated devices*/
+#define SHORTADDR_ENDDEVICES 0x0000					/* Assign a short address to these devices*/
+
+static uint8_t associatedEndDevices = 0;
+static uint8_t checkAssociation = 0;
+struct NodeInfo endDevices[NUM_ENDDEVICES];  /* This will save the associated devices*/
+
 static uint8_t App_SendAssociateResponse(nwkMessage_t *pMsgIn, uint8_t appInstance)
 {
   mlmeMessage_t *pMsg;
@@ -765,7 +779,16 @@ static uint8_t App_SendAssociateResponse(nwkMessage_t *pMsgIn, uint8_t appInstan
     if(pMsgIn->msgData.associateInd.capabilityInfo & gCapInfoAllocAddr_c)
     {
       /* Assign a unique short address less than 0xfffe if the device requests so. */
-      pAssocRes->assocShortAddress = 0x0001;
+      if (associatedEndDevices == 0){
+    	  pAssocRes->assocShortAddress = SHORTADDR_ENDDEVICES;
+      } else {
+    	  checkAssociation = 0;
+    	  for (uint8_t i=0; i< NUM_ENDDEVICES ;i++){
+    		  if (pAssocRes->deviceAddress == endDevices[i].deviceAddress){
+    		  }
+    	  }
+
+      }
     }
     else
     {
@@ -857,6 +880,16 @@ static void App_HandleMcpsInput(mcpsToNwkMessage_t *pMsgIn, uint8_t appInstance)
        or application layer when data has been received. We simply
        copy the received data to the UART. */
     Serial_SyncWrite( interfaceId,pMsgIn->msgData.dataInd.pMsdu, pMsgIn->msgData.dataInd.msduLength );
+    Serial_Print(interfaceId,"\r\tSource Address: ", gAllowToBlock_d);
+    Serial_PrintHex(interfaceId,(uint8_t *)&pMsgIn->msgData.dataInd.srcAddr, 2, gPrtHexNoFormat_c);
+    Serial_Print(interfaceId,"\n\r\tLink Quality: ", gAllowToBlock_d);
+    Serial_PrintHex(interfaceId,(uint8_t *)&pMsgIn->msgData.dataInd.mpduLinkQuality, 1, gPrtHexNoFormat_c);
+    Serial_Print(interfaceId,"\n\r\tPayload size: ", gAllowToBlock_d);
+    Serial_PrintHex(interfaceId,(uint8_t *)&pMsgIn->msgData.dataInd.msduLength, 1, gPrtHexNoFormat_c);
+    Serial_Print(interfaceId,"\n\r", gAllowToBlock_d);
+    LED_Refresh (pMsgIn->msgData.dataInd.pMsdu);
+	/*Change led status*/
+	led_change(pMsgIn->msgData.dataInd.pMsdu);
     break;
     
   default:
