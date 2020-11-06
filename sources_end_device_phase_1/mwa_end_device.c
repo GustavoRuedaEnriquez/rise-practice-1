@@ -74,6 +74,7 @@
 #define BUTTON_THREE (3U)
 #define BUTTON_FOUR (4U)
 
+#define FFD
 /************************************************************************************
 *************************************************************************************
 * Private prototypes
@@ -230,6 +231,15 @@ void main_task(uint32_t param)
         Mac_RegisterSapHandlers( MCPS_NWK_SapHandler, MLME_NWK_SapHandler, macInstance );
 
         App_init();
+#ifdef FFD
+        mlmeMessage_t *RxOnWhenIdleMessage = MSG_AllocType(mlmeMessage_t);
+        uint8_t value = TRUE;
+
+        RxOnWhenIdleMessage->msgType = gMlmeSetReq_c;
+        RxOnWhenIdleMessage->msgData.setReq.pibAttribute = gMPibRxOnWhenIdle_c;
+        RxOnWhenIdleMessage->msgData.setReq.pibAttributeValue = &value;
+        (void)NWK_MLME_SapHandler(RxOnWhenIdleMessage, macInstance);
+#endif
 
         /* Create application task */
         mAppTaskHandler = OSA_TaskCreate(OSA_TASK(AppThread), NULL);
@@ -863,6 +873,9 @@ static uint8_t App_SendAssociateRequest(void)
 
     /* We want the coordinator to assign a short address to us. */
     pAssocReq->capabilityInfo     = gCapInfoAllocAddr_c;
+#ifdef FFD
+    pAssocReq->capabilityInfo |= (gCapInfoDeviceFfd_c | gCapInfoRxWhenIdle_c);
+#endif
       
     /* Send the Associate Request to the MLME. */
     if(NWK_MLME_SapHandler( pMsg, macInstance ) == gSuccess_c)
@@ -996,6 +1009,7 @@ static void App_HandleMcpsInput(mcpsToNwkMessage_t *pMsgIn)
     /* The MCPS-Data confirm is sent by the MAC to the network 
        or application layer when data has been sent. */
   case gMcpsDataCnf_c:
+	  Serial_SyncWrite(interfaceId, pMsgIn->msgData.dataInd.pMsdu, pMsgIn->msgData.dataInd.msduLength);
     if(mcPendingPackets)
       mcPendingPackets--;
     break;
@@ -1113,7 +1127,7 @@ static void App_TransmitUartData(void)
         mpPacket->msgData.dataReq.securityLevel = gMacSecurityNone_c;
         
         /* Send the Data Request to the MCPS */
-        //(void)NWK_MCPS_SapHandler(mpPacket, macInstance);
+        (void)NWK_MCPS_SapHandler(mpPacket, macInstance);
         
         /* Prepare for another data buffer */
         mpPacket = NULL;
@@ -1193,10 +1207,33 @@ static void App_HandleKeys
     switch ( events ) 
     { 
     case gKBD_EventLongSW1_c:
-        OSA_EventSet(mAppEvent, gAppEvtPressedRestoreNvmBut_c);
+        if(gState == stateListen)
+        	OSA_EventSet(mAppEvent, gAppEvtPressedRestoreNvmBut_c);
+        if(gState == stateInit)
+			{
+				LED_StopFlashingAllLeds();
+				OSA_EventSet(mAppEvent, gAppEvtDummyEvent_c);
+			}
+        else{
+        	ButtonEvents_handle(2);
+        }
+        break;
     case gKBD_EventLongSW2_c:
+    	if(gState == stateListen)
+			OSA_EventSet(mAppEvent, gAppEvtPressedRestoreNvmBut_c);
+		if(gState == stateInit)
+			{
+				LED_StopFlashingAllLeds();
+				OSA_EventSet(mAppEvent, gAppEvtDummyEvent_c);
+			}
+		else{
+			ButtonEvents_handle(1);
+		}
+		break;
     case gKBD_EventLongSW3_c:
+    	break;
     case gKBD_EventLongSW4_c:
+    	break;
     case gKBD_EventSW1_c:
     	ButtonEvents_handle(BUTTON_ONE);
     	break;
@@ -1217,11 +1254,7 @@ static void App_HandleKeys
     case gKBD_EventLongSW5_c:
     case gKBD_EventLongSW6_c:       
 #endif
-        if(gState == stateInit)
-        {
-            LED_StopFlashingAllLeds();
-            OSA_EventSet(mAppEvent, gAppEvtDummyEvent_c);
-        }
+
     }
 #endif
 }

@@ -13,7 +13,7 @@ osaTaskId_t gMyTaskHandler_ID;
 /* Local variable to store the current state of the LEDs */
 static uint8_t ledsState = 0;
 
-uint8_t counter = 1;
+
 uint8_t test[] = "x";
 
 static uint8_t mMsduHandle = 0;
@@ -24,9 +24,13 @@ OSA_TASK_DEFINE(My_Task, gMyTaskPriority_c, 1, gMyTaskStackSize_c, FALSE );
 static void myTaskTimerCallback(void *param);
 static nwkToMcpsMessage_t *mpPacket;
 
+static uint8_t counter = 0;
+static uint8_t msg[] = "Counter: x";
+
 /* Main custom task */
 void My_Task(osaTaskParam_t argument)
 {
+
 	osaEventFlags_t customEvent;
 	myTimerID = TMR_AllocateTimer();
 
@@ -43,29 +47,31 @@ void My_Task(osaTaskParam_t argument)
 		{
 		case gMyNewTaskEvent1_c:
 
-			if(counter > 4)
+			if(counter > 3)
 			{
-				counter = 1;
+				counter = 0;
 			}
 			TurnOffLeds();
 			switch(counter)
 			{
-			case 1:
-				Led1On();
-				break;
-			case 2:
+
+			case 0:
 				Led2On();
 				break;
-			case 3:
+			case 1:
 				Led3On();
 				break;
-			case 4:
+			case 2:
 				Led4On();
+				break;
+			case 3:
+				TurnOnLeds();
 				break;
 			default:
 				break;
 			}
 
+			msg[9] = counter + 48;
 			mpPacket = MSG_Alloc(sizeof(nwkToMcpsMessage_t) + 1);
 
 		    if(mpPacket != NULL)
@@ -73,7 +79,7 @@ void My_Task(osaTaskParam_t argument)
 		    	mpPacket->msgType = gMcpsDataReq_c;
 		        mpPacket->msgData.dataReq.pMsdu = (uint8_t*)(&mpPacket->msgData.dataReq.pMsdu) +
 		            sizeof(mpPacket->msgData.dataReq.pMsdu);
-		        mpPacket->msgData.dataReq.pMsdu = &counter;
+		        mpPacket->msgData.dataReq.pMsdu = &msg;
 				mpPacket->msgData.dataReq.dstAddr = 0x0000;
 				mpPacket->msgData.dataReq.dstPanId = 0x6666;
 				mpPacket->msgData.dataReq.srcAddr = 0x0001;
@@ -81,7 +87,7 @@ void My_Task(osaTaskParam_t argument)
 				mpPacket->msgData.dataReq.srcAddrMode = gAddrModeShortAddress_c;
 				mpPacket->msgData.dataReq.msduHandle = mMsduHandle++;
 				mpPacket->msgData.dataReq.securityLevel = gMacSecurityNone_c;
-				mpPacket->msgData.dataReq.msduLength = 1;
+				mpPacket->msgData.dataReq.msduLength = 10;
 				mpPacket->msgData.dataReq.srcPanId = 0x6666;
 				mpPacket->msgData.dataReq.txOptions = gMacTxOptionsAck_c;
 				(void)NWK_MCPS_SapHandler(mpPacket, 0);
@@ -115,21 +121,23 @@ void ButtonEvents_handle(uint8_t button)
 	TurnOffLeds();
 	counter = button;
 	switch (counter) {
-	case 1:
-		Led1On();
-		break;
-	case 2:
+	case 0:
 		Led2On();
 		break;
-	case 3:
+	case 1:
 		Led3On();
 		break;
-	case 4:
+	case 2:
 		Led4On();
+		break;
+	case 3:
+		TurnOnLeds();
 		break;
 	default:
 		break;
 	}
+	msg[9] = counter + 48;
+	counter++;
 	mpPacket = MSG_Alloc(sizeof(nwkToMcpsMessage_t) + 1);
 
 	if (mpPacket != NULL) {
@@ -137,15 +145,15 @@ void ButtonEvents_handle(uint8_t button)
 		mpPacket->msgData.dataReq.pMsdu =
 				(uint8_t*) (&mpPacket->msgData.dataReq.pMsdu)
 						+ sizeof(mpPacket->msgData.dataReq.pMsdu);
-		mpPacket->msgData.dataReq.pMsdu = &counter;
+		mpPacket->msgData.dataReq.pMsdu = &msg;
 		mpPacket->msgData.dataReq.dstAddr = 0x0000;
-		mpPacket->msgData.dataReq.dstPanId = 0x1111;
+		mpPacket->msgData.dataReq.dstPanId = 0x6666;
 		mpPacket->msgData.dataReq.dstAddrMode = gAddrModeShortAddress_c;
 		mpPacket->msgData.dataReq.srcAddrMode = gAddrModeShortAddress_c;
 		mpPacket->msgData.dataReq.msduHandle = mMsduHandle++;
 		mpPacket->msgData.dataReq.securityLevel = gMacSecurityNone_c;
-		mpPacket->msgData.dataReq.msduLength = 1;
-		mpPacket->msgData.dataReq.srcPanId = 0x1111;
+		mpPacket->msgData.dataReq.msduLength = 10;
+		mpPacket->msgData.dataReq.srcPanId = 0x6666;
 		mpPacket->msgData.dataReq.txOptions = gMacTxOptionsAck_c;
 		(void) NWK_MCPS_SapHandler(mpPacket, 0);
 	}
