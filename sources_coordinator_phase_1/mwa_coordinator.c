@@ -36,9 +36,23 @@
 /* KSDK */
 #include "board.h"
 #include "fsl_os_abstraction.h"
+#define MAX_END_DEVICES	5U
+/* Custom structure for associated devices*/
+typedef struct{
+	uint16_t shortAddr_i;
+	uint64_t extendedAddr_i;
+	union{
+		uint8_t RxOnWhenIdle_b:1;
+		uint8_t FFDTrue_b:1;
+	};
+}endDevice_info_t;
 
 /* Custom Headers */
-#include "MyNewTask.h"
+
+endDevice_info_t connectedDevices[MAX_END_DEVICES];
+uint16_t currentShortAddress = 0x0001;
+uint8_t currentNodes = 0;
+uint8_t ack_message[] = "APP_ACK";
 
 /************************************************************************************
 *************************************************************************************
@@ -731,33 +745,41 @@ static uint8_t App_SendAssociateResponse(nwkMessage_t *pMsgIn, uint8_t appInstan
     /* Create the Associate response message data. */
     pAssocRes = &pMsg->msgData.associateRes;
 
-    /* Assign a short address to the device. In this example we simply
-       choose 0x0001. Though, all devices and coordinators in a PAN must have
-       different short addresses. However, if a device do not want to use
-       short addresses at all in the PAN, a short address of 0xFFFE must
-       be assigned to it. */
-    if(pMsgIn->msgData.associateInd.capabilityInfo & gCapInfoAllocAddr_c)
-    {
-      /* Assign a unique short address less than 0xfffe if the device requests so. */
-      pAssocRes->assocShortAddress = 0x0001;
+     /* Get the 64 bit address of the device requesting association. */
+    FLib_MemCpy(&pAssocRes->deviceAddress, 
+	&pMsgIn->msgData.associateInd.deviceAddress, 8);
+	
+    uint8_t alreadyConnected = FALSE;
+	  
+		for (uint8_t indexNetwork = 0; indexNetwork < 5;indexNetwork++) {
+			if ((pAssocRes->deviceAddress) == (connectedDevices[indexNetwork].extendedAddr_i)) {
+				alreadyConnected = indexNetwork + 1;
+			}
+		}
+	if(FALSE != alreadyConnected)
+	{
+      /*Not already detected on network*/
+	  pAssocRes->assocShortAddress = connectedDevices[alreadyConnected - 1].shortAddr_i;
     }
     else
     {
       /* A short address of 0xfffe means that the device is granted access to
          the PAN (Associate successful) but that long addressing is used.*/
-      pAssocRes->assocShortAddress = 0xFFFE;
+      pAssocRes->assocShortAddress = currentShortAddress ;
+			connectedDevices[currentShortAddress-1].shortAddr_i = currentShortAddress;
+			connectedDevices[currentShortAddress-1].extendedAddr_i = pAssocRes->deviceAddress;
+			connectedDevices[currentShortAddress-1].FFDTrue_b = (pMsgIn->msgData.associateInd.capabilityInfo & gCapInfoDeviceFfd_c) >> 1;
+			connectedDevices[currentShortAddress-1].RxOnWhenIdle_b = (pMsgIn->msgData.associateInd.capabilityInfo & gCapInfoRxWhenIdle_c) >> 3;
+			currentNodes  = currentShortAddress-1;
+			currentShortAddress++;
     }
-    /* Get the 64 bit address of the device requesting association. */
-    FLib_MemCpy(&pAssocRes->deviceAddress, &pMsgIn->msgData.associateInd.deviceAddress, 8);
-    /* Association granted. May also be gPanAtCapacity_c or gPanAccessDenied_c. */
+    
+	/* Association granted. May also be gPanAtCapacity_c or gPanAccessDenied_c. */
     pAssocRes->status = gSuccess_c;
     /* Do not use security */
     pAssocRes->securityLevel = gMacSecurityNone_c;
 
-    /* Save device info. */
-    FLib_MemCpy(&mDeviceShortAddress, &pAssocRes->assocShortAddress, 2);
-    FLib_MemCpy(&mDeviceLongAddress,  &pAssocRes->deviceAddress,     8);
-    
+     
     /* Send the Associate Response to the MLME. */
     if( gSuccess_c == NWK_MLME_SapHandler( pMsg, macInstance ) )
     {
@@ -797,7 +819,6 @@ static uint8_t App_HandleMlmeInput(nwkMessage_t *pMsg, uint8_t appInstance)
   case gMlmeAssociateInd_c:
     Serial_Print(interfaceId,"Received an MLME-Associate Indication from the MAC\n\r", gAllowToBlock_d);
     /* A device sent us an Associate Request. We must send back a response.  */
-    MyTaskTimer_Stop();
     return App_SendAssociateResponse(pMsg, appInstance);
     
   case gMlmeCommStatusInd_c:
@@ -818,51 +839,59 @@ static uint8_t App_HandleMlmeInput(nwkMessage_t *pMsg, uint8_t appInstance)
 ******************************************************************************/
 static void App_HandleMcpsInput(mcpsToNwkMessage_t *pMsgIn, uint8_t appInstance)
 {
-  switch(pMsgIn->msgType)
-  {
-    /* The MCPS-Data confirm is sent by the MAC to the network
+	switch(pMsgIn->msgType)
+	{
+	/* The MCPS-Data confirm is sent by the MAC to the network
        or application layer when data has been sent. */
-  case gMcpsDataCnf_c:
-    if(mcPendingPackets)
-      mcPendingPackets--;
-    break;
+	case gMcpsDataCnf_c:
+		if(mcPendingPackets)
+			mcPendingPackets--;
+		break;
 
-  case gMcpsDataInd_c:
-    /* The MCPS-Data indication is sent by the MAC to the network
+	case gMcpsDataInd_c:
+		/* The MCPS-Data indication is sent by the MAC to the network
        or application layer when data has been received. We simply
        copy the received data to the UART. */
-    //Serial_SyncWrite( interfaceId,pMsgIn->msgData.dataInd.pMsdu, pMsgIn->msgData.dataInd.msduLength );
-	  TurnOffLeds();
-	  Serial_Print(interfaceId,"\r\nMessage received from 0x",gAllowToBlock_d);
-	  Serial_PrintHex(interfaceId, pMsgIn->msgData.dataInd.srcAddr, 8, gPrtHexNoFormat_c);
-	  Serial_Print(interfaceId, "\r\nLQI = ", gAllowToBlock_d);
-	  Serial_PrintDec(interfaceId, pMsgIn->msgData.dataInd.mpduLinkQuality);
-	  Serial_Print(interfaceId, "\r\nPayload size: ", gAllowToBlock_d);
-	  Serial_PrintDec(interfaceId, pMsgIn->msgData.dataInd.msduLength);
-	  switch(*pMsgIn->msgData.dataInd.pMsdu)
-	  {
+		Serial_SyncWrite( interfaceId,pMsgIn->msgData.dataInd.pMsdu, pMsgIn->msgData.dataInd.msduLength );
+
+		uint8_t counter = 0;
+		counter = pMsgIn->msgData.dataInd.pMsdu[pMsgIn->msgData.dataInd.msduLength-1];
+		/* Get from ascii to decimal*/
+		counter -= 48;
+		TurnOffLeds();
+		Serial_Print(interfaceId,"\r\nMessage received from 0x",gAllowToBlock_d);
+		Serial_PrintHex(interfaceId, (uint8_t*)&pMsgIn->msgData.dataInd.srcAddr, 2, gPrtHexNoFormat_c);
+		Serial_Print(interfaceId, "\r\nLQI = ", gAllowToBlock_d);
+		Serial_PrintHex(interfaceId, (uint8_t*)&pMsgIn->msgData.dataInd.mpduLinkQuality, 1, gPrtHexNoFormat_c);
+		Serial_Print(interfaceId, "\r\nPayload size: ", gAllowToBlock_d);
+		Serial_PrintHex(interfaceId, (uint8_t*)&pMsgIn->msgData.dataInd.msduLength, 1, gPrtHexNoFormat_c);
+		Serial_Print(interfaceId,"\r\n\n",gAllowToBlock_d);
+
+		switch(counter)
 		{
-		case 1:
-			Led1On();
-			break;
-		case 2:
+
+		case 0:
 			Led2On();
 			break;
-		case 3:
+		case 1:
 			Led3On();
 			break;
-		case 4:
+		case 2:
 			Led4On();
+			break;
+		case 3:
+			TurnOnLeds();
 			break;
 		default:
 			break;
+
+			(void) NWK_MCPS_SapHandler(mpPacket, 0);
 		}
-	  }
-    break;
-    
-  default:
-    break;
-  }
+		break;
+
+		default:
+			break;
+	}
 }
 
 /******************************************************************************
@@ -929,7 +958,7 @@ static void App_TransmitUartData(void)
     application where the data rate is of concern. */
     if( (mcPendingPackets < mDefaultValueOfMaxPendingDataPackets_c) && (mpPacket == NULL) )
     {
-        if( mDeviceShortAddress != 0xFFFF )
+        if(connectedDevices[currentNodes].shortAddr_i != 0xFFFF )
         {
             mpPacket = MSG_Alloc(sizeof(nwkToMcpsMessage_t) + count);
         }
@@ -947,7 +976,7 @@ static void App_TransmitUartData(void)
         the association response. In this simple example the use of short
         addresses is hardcoded. In a real world application we must be
         flexible, and use the address mode required by the given situation. */
-        FLib_MemCpy(&mpPacket->msgData.dataReq.dstAddr, (void*)&mDeviceShortAddress, 2);
+        FLib_MemCpy(&mpPacket->msgData.dataReq.dstAddr, (void*)&connectedDevices[currentNodes].shortAddr_i, 2);
         FLib_MemCpy(&mpPacket->msgData.dataReq.srcAddr, (void*)&mShortAddress, 2);
         FLib_MemCpy(&mpPacket->msgData.dataReq.dstPanId, (void*)&mPanId, 2);
         FLib_MemCpy(&mpPacket->msgData.dataReq.srcPanId, (void*)&mPanId, 2);
@@ -957,7 +986,10 @@ static void App_TransmitUartData(void)
         /* Request MAC level acknowledgement, and
         indirect transmission of the data packet */
         mpPacket->msgData.dataReq.txOptions = gMacTxOptionsAck_c;
-        mpPacket->msgData.dataReq.txOptions |= gMacTxOptionIndirect_c;
+        if(FALSE == connectedDevices[currentNodes].FFDTrue_b)
+        {
+        	mpPacket->msgData.dataReq.txOptions |= gMacTxOptionIndirect_c;
+        }
         /* Give the data packet a handle. The handle is
         returned in the MCPS-Data Confirm message. */
         mpPacket->msgData.dataReq.msduHandle = mMsduHandle++;
@@ -965,7 +997,7 @@ static void App_TransmitUartData(void)
         mpPacket->msgData.dataReq.securityLevel = gMacSecurityNone_c;
         
         /* Send the Data Request to the MCPS */
-        //(void)NWK_MCPS_SapHandler(mpPacket, macInstance);
+        (void)NWK_MCPS_SapHandler(mpPacket, macInstance);
         /* Prepare for another data buffer */
         mpPacket = NULL;
         mcPendingPackets++;
